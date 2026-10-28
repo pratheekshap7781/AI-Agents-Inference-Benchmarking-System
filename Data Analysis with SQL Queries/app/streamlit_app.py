@@ -374,22 +374,6 @@ with tab3:
             "which instrument it directly."
         )
 
-        st.subheader("Charts")
-        chart_col1, chart_col2 = st.columns(2)
-        with chart_col1:
-            st.markdown("**Avg latency by framework**")
-            st.bar_chart(summary.set_index("framework")[["avg_latency_s"]])
-        with chart_col2:
-            st.markdown("**Avg accuracy by framework**")
-            st.bar_chart(summary.set_index("framework")[["avg_accuracy_pct"]])
-
-        st.markdown("**Per-run latency (chronological by file)**")
-        per_run = filtered.sort_values("source_file")
-        st.line_chart(per_run, x="source_file", y="latency_s", color="framework")
-
-        st.markdown("**Tasks completed per iteration (mislabeled upstream as 'api_calls' — see note above)**")
-        st.bar_chart(summary.set_index("framework")[["avg_tasks_per_iteration"]])
-
         st.subheader("How accuracy is computed")
         st.markdown(
             "- Each run extracts the first number (`\\d+(\\.\\d+)?`) from the agent's text answer via "
