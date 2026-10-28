@@ -62,9 +62,13 @@ def extract_numerical_value(answer: str) -> Optional[float]:
     Returns:
         float: Final numeric answer to the question
     """
-    match = re.search(r'\d+(\.\d+)?', answer)  # Regex to find integers or decimal numbers
+    # FIX: the original pattern r'\d+(\.\d+)?' stops at the first comma, so an
+    # LLM answer like "1,350" was extracted as just "1". This matches
+    # thousands-separated numbers too (e.g. "1,350.5") and strips the commas
+    # before converting, without changing behavior for plain numbers.
+    match = re.search(r'\d{1,3}(,\d{3})+(\.\d+)?|\d+(\.\d+)?', answer)
     if match:
-        return float(match.group())  # Convert the matched value to a float
+        return float(match.group().replace(",", ""))  # Convert the matched value to a float
     return 'Error retrieving numeric answer' # Return None if no numerical value is found
 
 def save_results_to_csv(results, csv_filename, iteration, log_dir, framework):

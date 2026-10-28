@@ -2,6 +2,7 @@
 import os
 import yaml
 import time
+import getpass
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
@@ -36,7 +37,10 @@ with open(config_path, "r") as f:
     config = yaml.safe_load(f)
 
 # Get API key for GROQ
-os.environ["GROQ_API_KEY"] = "  ..."
+# (FIX: this used to be overwritten with a hardcoded placeholder, which
+# silently broke every run regardless of the real key in .env/env vars)
+if not os.environ.get("GROQ_API_KEY"):
+    os.environ["GROQ_API_KEY"] = getpass.getpass("Enter API key for Groq: ")
 
 # Load the LLM
 llm = get_llm(config)

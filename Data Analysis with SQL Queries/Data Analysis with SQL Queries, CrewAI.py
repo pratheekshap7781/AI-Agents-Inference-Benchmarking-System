@@ -16,7 +16,7 @@ from utils.logging_config import setup_logging
 from utils.helper_functions import get_llm, extract_questions, extract_numerical_value, save_results_to_csv, compare_answers
 from langchain_core.tools import tool
 from langchain_community.tools.sql_database.tool import ListSQLDatabaseTool, InfoSQLDatabaseTool
-from crewai import Agent, Task, Crew, Process
+from crewai import Agent, Task, Crew, Process, LLM
 from crewai.tools import tool
 
 # Set the framework that will be benchmarked
@@ -32,20 +32,25 @@ script_dir = Path(__file__).parent
 with open(script_dir / "config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
-# Set API keys before loading LLM
-os.environ["GROQ_API_KEY"] = ".."
-os.environ["OPENAI_API_KEY"] = "..."
-
 # Get API key for GROQ
-#if not os.environ.get("GROQ_API_KEY"):
- # os.environ["GROQ_API_KEY"] = getpass.getpass("Enter API key for Groq: ")
+# (FIX: this used to be overwritten with a hardcoded placeholder "..",
+# which silently broke every run regardless of the real key in .env/env vars)
+if not os.environ.get("GROQ_API_KEY"):
+    os.environ["GROQ_API_KEY"] = getpass.getpass("Enter API key for Groq: ")
 
 # Load the LLM
 llm = get_llm(config)
 
-# Get API key for OPENAI
-#if not os.environ.get("OPENAI_API_KEY"):
- # os.environ["OPENAI_API_KEY"] = getpass.getpass("Enter API key for OpenAI: ")
+# FIX: the CrewAI Agent below was never given an explicit `llm=`, so CrewAI
+# fell back to its own default model resolution instead of the Groq model
+# configured in config.yaml — breaking the "same LLM for both frameworks"
+# standardization the project claims. This LLM object uses the identical
+# model name and temperature as the ChatGroq instance LangGraph uses.
+crew_llm = LLM(
+    model=f"groq/{config['model']['name']}",
+    temperature=config['model']['temperature'],
+    api_key=os.environ["GROQ_API_KEY"],
+)
 
 # Connect to database
 db_path = script_dir / 'data' / 'amazon_cleaned.db'
@@ -56,8 +61,15 @@ questions = extract_questions(queries)
 
 # Define tools that the agent will use to interact with the database
 # Tool to fetch the available tables from the database
+# FIX: this was a zero-argument tool. crewai's schema generator then emits
+# {"properties": {}} for it, and when that gets converted to an OpenAI-style
+# function spec for Groq's tool-calling API, Groq rejects the result
+# ("'required' present but 'properties' is missing"). An unused optional
+# argument keeps the schema non-empty and the tool's behavior unchanged.
+# (The argument must not start with "_" — pydantic treats that as a
+# private, non-schema field and crewai would silently drop it again.)
 @tool("list_tables_tool")
-def list_tables_tool() -> str:
+def list_tables_tool(unused: str = "") -> str:
     """List the available tables in the database"""
     return ListSQLDatabaseTool(db=db).invoke("")
 
@@ -112,7 +124,8 @@ senior_data_analyst = Agent(
     "DO NOT make any DML statements (INSERT, UPDATE, DELETE, DROP etc.) to the database.",
     backstory="Specializing in data analysis, this agent uses generated SQL queries to answer input questions.",
     allow_delegation=False,
-    tools = [list_tables_tool, get_schema_tool, execute_sql_tool]
+    tools = [list_tables_tool, get_schema_tool, execute_sql_tool],
+    llm=crew_llm
 )
 
 # Create the task for the agent
@@ -157,7 +170,7 @@ def kickoff_crew(
         process=Process.sequential, 
         verbose=False,  # Enable verbose logging for detailed information during execution
         memory=False,  # Disable memory, meaning each task will not retain data between executions
-        manager_llm=llm,  # The LLM that will manage the crew's operations
+        manager_llm=crew_llm,  # FIX: was the LangChain `llm` object, which crewai.Crew doesn't accept as manager_llm
         output_log_file="crew.log",  # The log file to capture the crew's activity and outputs
     )
 
